@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'; 
-    import Sidebar from '$lib/components/Sidebar.svelte';
-    import '../app.css'; // Import global CSS
+    import Sidebar from '$lib/components/common/Sidebar.svelte';
+    import '../app.css'; 
 
   
 </script>
@@ -10,7 +10,7 @@
     <Sidebar />
 
     <main class="main-content">
-        <!-- Currency Toggle Buttons REMOVED -->
+        
 
         <div class="container">
             <slot />
@@ -23,7 +23,7 @@
 <style>
     .app-layout {
         display: flex;
-        min-height: 100vh; /* Ensure layout takes full height */
+        min-height: 100vh; 
     }
 
     .main-content {

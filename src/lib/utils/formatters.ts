@@ -1,53 +1,59 @@
-
 export function formatCurrency(
-    value: number | null | undefined,
-    currencyCode?: string, 
-    locale: string = 'hu-HU'
+    amount: number, 
+    currency: string = 'HUF', 
+    options?: Intl.NumberFormatOptions
 ): string {
-    if (value === null || value === undefined || isNaN(value)) {
-         value = 0;
+    if (amount === null || amount === undefined) {
+        return '';
     }
-
     
-    const finalCurrencyCode = currencyCode ?? 'HUF'; 
-
-    try {
-        return new Intl.NumberFormat(locale, {
-            style: 'currency',
-            currency: finalCurrencyCode,
-          
-        }).format(value);
-    } catch (error) {
-        console.error(`Error formatting currency (${finalCurrencyCode}):`, error);
-        return `${value.toFixed(2)} ${finalCurrencyCode}`; 
-    }
+    const defaultOptions: Intl.NumberFormatOptions = {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'symbol',
+        minimumFractionDigits: currency === 'HUF' ? 0 : 2,
+        maximumFractionDigits: currency === 'HUF' ? 0 : 2
+    };
+    
+    const mergedOptions = { ...defaultOptions, ...options };
+    
+    return new Intl.NumberFormat('hu-HU', mergedOptions).format(amount);
 }
 
+export function formatNumber(
+    value: number, 
+    options?: Intl.NumberFormatOptions
+): string {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    
+    const defaultOptions: Intl.NumberFormatOptions = {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    };
+    
+    const mergedOptions = { ...defaultOptions, ...options };
+    
+    return new Intl.NumberFormat('hu-HU', mergedOptions).format(value);
+}
 
 export function formatDate(
-    dateInput: string | Date | null | undefined,
-    options?: Intl.DateTimeFormatOptions,
-    locale: string = 'hu-HU'
+    dateStr: string, 
+    options?: Intl.DateTimeFormatOptions
 ): string {
-    if (!dateInput) return '-'; 
+    if (!dateStr) {
+        return '';
+    }
     
-    const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-    
- 
     const defaultOptions: Intl.DateTimeFormatOptions = {
-        year: 'numeric', 
-        month: 'short', 
+        year: 'numeric',
+        month: 'long',
         day: 'numeric'
     };
-
-    try {
-        if (isNaN(date.getTime())) {
-            console.error("Invalid date provided to formatDate:", dateInput);
-            return 'Invalid Date';
-        }
-        return new Intl.DateTimeFormat(locale, options ?? defaultOptions).format(date);
-    } catch (error) {
-        console.error(`Error formatting date:`, error);
-        return date.toDateString(); 
-    }
+    
+    const mergedOptions = { ...defaultOptions, ...options };
+    
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat('hu-HU', mergedOptions).format(date);
 } 

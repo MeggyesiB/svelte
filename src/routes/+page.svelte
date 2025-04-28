@@ -2,16 +2,16 @@
     export let data: PageData;
 
     import type { PageData } from './$types';
-    import Card from '$lib/components/Card.svelte';
-    import ChartWidget from '$lib/components/widgets/ChartWidget.svelte';
+    import type { SpendingByCategory, DailyIncomeExpense } from '$lib/types';
+    import Card from '$lib/components/common/Card.svelte';
+    import Chart from '$lib/components/charts/Chart.svelte';
     import type { ChartConfiguration, TooltipCallbacks } from 'chart.js/auto';
-    import Button from '$lib/components/Button.svelte';
+    import Button from '$lib/components/common/Button.svelte';
     import { formatDate, formatCurrency } from '$lib/utils/formatters'; 
+    import { getAdjacentMonth } from '$lib/utils/dates';
 
-    
-    let currentPieChartView: 'huf' | 'eur' = 'huf';
-    let currentBarChartView: 'huf' | 'eur' = 'huf';
-
+    let currentPieChartView: 'huf' | 'eur' | 'all' = 'huf';
+    let currentBarChartView: 'huf' | 'eur' | 'all' = 'huf';
     
     $: monthlyIncomeExpense = data.monthlyIncomeExpense;
     $: transactionCounts = data.transactionCounts;
@@ -21,41 +21,16 @@
     $: exchangeRate = data.exchangeRate;
     $: exchangeRateError = data.exchangeRateError;
     $: error = data.error;
-
-    
-    $: processedSpendingData = spendingByCategory
-        .map(item => ({
-            category_name: item.category_name,
-            total_spending: currentPieChartView === 'eur' ? item.totalEUR : item.totalHUF
-        }))
-        .filter(item => item.total_spending > 0)
-        .sort((a, b) => b.total_spending - a.total_spending);
-
-    $: processedDailyData = dailyIncomeExpense
-        .map(item => ({
-            date: item.date,
-            income: currentBarChartView === 'eur' ? item.totalIncomeEUR : item.totalIncomeHUF,
-            expense: currentBarChartView === 'eur' ? item.totalExpenseEUR : item.totalExpenseHUF
-        }))
-        .filter(item => item.income > 0 || item.expense > 0);
-
    
-    let pieChartConfig: ChartConfiguration | null = null;
-    let barChartConfig: ChartConfiguration | null = null;
+    $: pieChartTitle = `Költés Kategóriánként (${currentPieChartView === 'eur' ? 'EUR' : currentPieChartView === 'all' ? 'Összesítve' : 'HUF'})`;
+    $: barChartTitle = `Havi Bevétel/Kiadás (${currentBarChartView === 'eur' ? 'EUR' : currentBarChartView === 'all' ? 'Összesítve' : 'HUF'})`;
 
-    
-    $: pieChartTitle = `Költés Kategóriánként (${currentPieChartView === 'eur' ? 'EUR' : 'HUF'})`;
-    $: barChartTitle = `Havi Bevétel/Kiadás (${currentBarChartView === 'eur' ? 'EUR' : 'HUF'})`;
-
-
-    
     const categoryColors = [
         '#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#a855f7',
         '#22c55e', '#0ea5e9', '#ec4899', '#84cc16', '#f97316'
     ];
-
     
-    function formatChartTooltipLabel(context: any, currency: 'HUF' | 'EUR'): string {
+    function formatChartTooltipLabel(context: any, currency: 'HUF' | 'EUR' | string): string {
         let label = context.dataset.label || context.label || '';
         if (label) label += ': ';
        
@@ -65,10 +40,9 @@
         }
         return label;
     }
-
     
     function createChartOptions(
-        tooltipLabelCallback: TooltipCallbacks<'bar' | 'doughnut'>['label'], // Pontosabb típus
+        tooltipLabelCallback: TooltipCallbacks<'bar' | 'doughnut'>['label'],
         legendPadding: number = 10, 
         tooltipMode: 'point' | 'index' | 'nearest' | 'dataset' | 'x' | 'y' = 'point',
         tooltipIntersect: boolean = true
@@ -92,34 +66,111 @@
         };
     }
 
-    
-    $: {
-        const selectedCurrency = currentPieChartView === 'eur' ? 'EUR' : 'HUF';
+    function calculateCombinedHUF(hufValue: number, eurValue: number | undefined, rate: number | undefined): number {
+        if (eurValue === undefined || rate === undefined || rate <= 0) {
+            return hufValue || 0;
+        }
+        return (hufValue || 0) + (eurValue * rate);
+    }
+
+    function setPieView(view: 'huf' | 'eur' | 'all') {
+        currentPieChartView = view;
+    }
+    function setBarView(view: 'huf' | 'eur' | 'all') {
+        currentBarChartView = view;
+    }
+
+    function preparePieData(view: 'huf' | 'eur' | 'all', spendingData: SpendingByCategory[], rate?: number) {
+        let selectedCurrencyLabel = 'HUF';
         
-        // Adatfeldolgozás itt:
-        const processedData = spendingByCategory
-            .map(item => ({
-                category_name: item.category_name,
-                total_spending: currentPieChartView === 'eur' ? item.totalEUR : item.totalHUF
-            }))
-            .filter(item => item.total_spending > 0)
-            .sort((a, b) => b.total_spending - a.total_spending);
+        const processed = spendingData
+            .map(item => {
+                let totalSpending = 0;
+                if (view === 'huf') {
+                    totalSpending = item.totalSpentHUF;
+                    selectedCurrencyLabel = 'HUF';
+                } else if (view === 'eur') {
+                    totalSpending = item.totalSpentEUR;
+                    selectedCurrencyLabel = 'EUR';
+                 } else { 
+                     totalSpending = calculateCombinedHUF(item.totalSpentHUF, item.totalSpentEUR, rate);
+                     selectedCurrencyLabel = 'HUF (Összesítve)';
+                 }
+                return {
+                    categoryName: item.categoryName,
+                    totalSpending
+                };
+            })
+            .filter(item => item.totalSpending > 0)
+            .sort((a, b) => b.totalSpending - a.totalSpending);
 
-        const labels = processedData.map(item => item.category_name);
-        const spending = processedData.map(item => item.total_spending);
-        const backgroundColors = processedData.map((_, index) => categoryColors[index % categoryColors.length]);
+        return {
+            labels: processed.map(item => item.categoryName),
+            spending: processed.map(item => item.totalSpending),
+            currencyLabel: selectedCurrencyLabel,
+            view: view
+        };
+    }
 
-        const options = createChartOptions(
-            (context) => formatChartTooltipLabel(context, selectedCurrency),
-            15, 'point', true
-        );
+    function prepareBarData(view: 'huf' | 'eur' | 'all', dailyData: DailyIncomeExpense[], rate?: number) {
+        let selectedCurrencyLabel = 'HUF';
+        
+        const processed = dailyData
+            .map(item => {
+                let income = 0;
+                let expense = 0;
+                if (view === 'huf') {
+                    income = item.totalIncomeHUF;
+                    expense = item.totalExpenseHUF;
+                    selectedCurrencyLabel = 'HUF';
+                } else if (view === 'eur') {
+                    income = item.totalIncomeEUR;
+                    expense = item.totalExpenseEUR;
+                    selectedCurrencyLabel = 'EUR';
+                 } else { 
+                     income = calculateCombinedHUF(item.totalIncomeHUF, item.totalIncomeEUR, rate);
+                     expense = calculateCombinedHUF(item.totalExpenseHUF, item.totalExpenseEUR, rate);
+                     selectedCurrencyLabel = 'HUF (Összesítve)';
+                 }
+                 return {
+                    date: item.date,
+                    income,
+                    expense
+                 };
+            })
+            .filter(item => item.income > 0 || item.expense > 0);
+
+        return {
+            labels: processed.map(item => formatDate(item.date, { month: 'short', day: 'numeric' })),
+            incomeData: processed.map(item => item.income),
+            expenseData: processed.map(item => item.expense),
+            currencyLabel: selectedCurrencyLabel,
+            view: view
+        };
+    }
+
+    $: pieChartData = preparePieData(currentPieChartView, spendingByCategory, exchangeRate?.rate);
+    $: barChartData = prepareBarData(currentBarChartView, dailyIncomeExpense, exchangeRate?.rate);
+
+    let pieChartConfig: ChartConfiguration | null = null;
+    let barChartConfig: ChartConfiguration | null = null;
+
+    $: {
+        const { labels, spending, currencyLabel, view } = pieChartData;
+        const backgroundColors = labels.map((_, index) => categoryColors[index % categoryColors.length]);
+
+        const tooltipCallback = (context: any) => {
+            let currency = view === 'eur' ? 'EUR' : 'HUF';
+            return formatChartTooltipLabel(context, currency);
+        };
+        const options = createChartOptions(tooltipCallback, 15, 'point', true);
 
         pieChartConfig = {
             type: 'doughnut',
             data: {
                 labels: labels,
                 datasets: [{
-                    label: `Költés (${selectedCurrency})`,
+                    label: `Költés (${currencyLabel})`,
                     data: spending,
                     backgroundColor: backgroundColors,
                     hoverOffset: 4
@@ -129,27 +180,14 @@
         };
     }
 
-   
     $: {
-        const selectedCurrency = currentBarChartView === 'eur' ? 'EUR' : 'HUF';
+        const { labels, incomeData, expenseData, currencyLabel, view } = barChartData;
 
-       
-        const processedData = dailyIncomeExpense
-            .map(item => ({
-                date: item.date,
-                income: currentBarChartView === 'eur' ? item.totalIncomeEUR : item.totalIncomeHUF,
-                expense: currentBarChartView === 'eur' ? item.totalExpenseEUR : item.totalExpenseHUF
-            }))
-            .filter(item => item.income > 0 || item.expense > 0);
-
-        const labels = processedData.map(item => formatDate(item.date, { month: 'short', day: 'numeric' }));
-        const incomeData = processedData.map(item => item.income);
-        const expenseData = processedData.map(item => item.expense);
-
-        const baseOptions = createChartOptions(
-            (context) => formatChartTooltipLabel(context, selectedCurrency),
-            10, 'index', false
-        );
+        const tooltipCallback = (context: any) => {
+            let currency = view === 'eur' ? 'EUR' : 'HUF';
+            return formatChartTooltipLabel(context, currency);
+        };
+        const baseOptions = createChartOptions(tooltipCallback, 10, 'index', false);
 
         barChartConfig = {
             type: 'bar',
@@ -162,34 +200,17 @@
             },
             options: {
                 ...baseOptions,
-                scales: { 
+                scales: {
                     x: { stacked: false, grid: { display: false } },
-                    y: { stacked: false, beginAtZero: true, title: { display: true, text: `Összeg (${selectedCurrency})` } }
+                    y: { stacked: false, beginAtZero: true, title: { display: true, text: `Összeg (${currencyLabel})` } }
                 }
             }
         };
     }
  
-    function getAdjacentMonth(currentMonth: string, direction: 'prev' | 'next'): string {
-        const [year, month] = currentMonth.split('-').map(Number);
-        const date = new Date(Date.UTC(year, month - 1, 1)); 
-        if (direction === 'prev') {
-            date.setUTCMonth(date.getUTCMonth() - 1);
-        } else {
-            date.setUTCMonth(date.getUTCMonth() + 1);
-        }
-        const nextYear = date.getUTCFullYear();
-        const nextMonth = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-        return `${nextYear}-${nextMonth}`;
-    }
-
     $: prevMonth = getAdjacentMonth(selectedMonth, 'prev');
     $: nextMonth = getAdjacentMonth(selectedMonth, 'next');
 
-    
-    $: formattedMonth = formatDate(selectedMonth + '-01', { year: 'numeric', month: 'long' });
-
-   
     function formatRateUpdate(isoDate?: string): string {
         if (!isoDate) return 'Ismeretlen';
         return formatDate(isoDate, { month: 'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -201,7 +222,7 @@
     <a href="?month={prevMonth}" class="month-nav-button" aria-label="Előző hónap">
         &lt;
     </a>
-    <h1>{formattedMonth}</h1>
+    <h1>{formatDate(selectedMonth + '-01', { year: 'numeric', month: 'long' })}</h1>
     <a href="?month={nextMonth}" class="month-nav-button" aria-label="Következő hónap">
         &gt;
     </a>
@@ -215,50 +236,61 @@
 {/if}
 
 <div class="dashboard-grid">
-    <Card title="Havi Összesítő" class_="widget-summary">
-        <div class="summary-grid summary-grid-all">
-            <!-- HUF Szekció -->
-            <span class="summary-label">Bevétel:</span>
-            <span class="summary-value income">
-                {formatCurrency(monthlyIncomeExpense.incomeHUF, 'HUF')}
-            </span>
-            <span class="summary-label">Kiadás:</span>
-            <span class="summary-value expense">
-                {formatCurrency(monthlyIncomeExpense.expenseHUF, 'HUF')}
-            </span>
-            <span class="summary-label">Egyenleg:</span>
-            <span class="summary-value balance {(monthlyIncomeExpense.incomeHUF - monthlyIncomeExpense.expenseHUF) >= 0 ? 'positive' : 'negative'}">
-                {formatCurrency(monthlyIncomeExpense.incomeHUF - monthlyIncomeExpense.expenseHUF, 'HUF')}
-            </span>
-            <span class="summary-label">Tranzakciók:</span>
-            <span class="summary-value">
-                {transactionCounts.countHUF} db (HUF)
-            </span>
+    <Card title="Havi Összesítő" extraClass="widget-summary">
+        {#if monthlyIncomeExpense && transactionCounts}
+            <div class="summary-grid summary-grid-all">
+                <span class="summary-label">Bevétel:</span>
+                <span class="summary-value income">
+                    {formatCurrency(monthlyIncomeExpense.incomeHUF, 'HUF')}
+                </span>
+                <span class="summary-label">Kiadás:</span>
+                <span class="summary-value expense">
+                    {formatCurrency(monthlyIncomeExpense.expenseHUF, 'HUF')}
+                </span>
+                <span class="summary-label">Egyenleg:</span>
+                <span class="summary-value balance {(monthlyIncomeExpense.incomeHUF - monthlyIncomeExpense.expenseHUF) >= 0 ? 'positive' : 'negative'}">
+                    {formatCurrency(monthlyIncomeExpense.incomeHUF - monthlyIncomeExpense.expenseHUF, 'HUF')}
+                </span>
+                <span class="summary-label">Tranzakciók:</span>
+                <span class="summary-value">
+                    {transactionCounts.countHUF} db (HUF)
+                </span>
 
-            <hr class="summary-divider">
+                <hr class="summary-divider">
 
-           
-             <span class="summary-label">Bevétel:</span>
-            <span class="summary-value income">
-                {formatCurrency(monthlyIncomeExpense.incomeEUR, 'EUR')}
-            </span>
-             <span class="summary-label">Kiadás:</span>
-            <span class="summary-value expense">
-                {formatCurrency(monthlyIncomeExpense.expenseEUR, 'EUR')}
-            </span>
-            <span class="summary-label">Egyenleg:</span>
-            <span class="summary-value balance {(monthlyIncomeExpense.incomeEUR - monthlyIncomeExpense.expenseEUR) >= 0 ? 'positive' : 'negative'}">
-                {formatCurrency(monthlyIncomeExpense.incomeEUR - monthlyIncomeExpense.expenseEUR, 'EUR')}
-            </span>
-             <span class="summary-label">Tranzakciók:</span>
-            <span class="summary-value">
-                {transactionCounts.countEUR} db (EUR)
-            </span>
-        </div>
+                <span class="summary-label">Bevétel:</span>
+                <span class="summary-value income">
+                    {formatCurrency(monthlyIncomeExpense.incomeEUR, 'EUR')}
+                </span>
+                <span class="summary-label">Kiadás:</span>
+                <span class="summary-value expense">
+                    {formatCurrency(monthlyIncomeExpense.expenseEUR, 'EUR')}
+                </span>
+                <span class="summary-label">Egyenleg:</span>
+                <span class="summary-value balance {(monthlyIncomeExpense.incomeEUR - monthlyIncomeExpense.expenseEUR) >= 0 ? 'positive' : 'negative'}">
+                    {formatCurrency(monthlyIncomeExpense.incomeEUR - monthlyIncomeExpense.expenseEUR, 'EUR')}
+                </span>
+                <span class="summary-label">Tranzakciók:</span>
+                <span class="summary-value">
+                    {transactionCounts.countEUR} db (EUR)
+                </span>
+                
+                 <hr class="summary-divider">
+
+                <span class="summary-label strong">Összes tranzakció:</span>
+                <span class="summary-value strong">{transactionCounts.countTotal} db</span>
+                
+                 <span class="summary-label strong"></span>
+                 <span class="summary-label strong"></span>
+
+            </div>
+        {:else if !error}
+             <p class="placeholder">Összesített adatok nem érhetők el.</p>
+        {/if}
     </Card>
 
     {#if exchangeRate}
-        <Card title="Árfolyam" class_="widget-rate">
+        <Card title="Árfolyam" extraClass="widget-rate">
              <p class="exchange-rate-display">
                 1 {exchangeRate.base} = 
                 <strong>{exchangeRate.rate.toFixed(2)}</strong> 
@@ -268,34 +300,65 @@
         </Card>
     {/if}
 
-   
-    <ChartWidget
-        class_="widget-spending-chart"
-        title={pieChartTitle}
-        chartConfig={pieChartConfig}
-        fallbackMessage="Nincs költési adat ebben a pénznemben."
-    >
-        <div slot="controls" class="chart-options">
-            <Button size="small" variant="secondary" active={currentPieChartView === 'huf'} onClick={() => currentPieChartView = 'huf'}>HUF</Button>
-            <Button size="small" variant="secondary" active={currentPieChartView === 'eur'} onClick={() => currentPieChartView = 'eur'}>EUR</Button>
+    <Card extraClass="widget-pie-chart" title={pieChartTitle}>
+        <div slot="controls" class="chart-toggle">
+            {#if pieChartConfig && pieChartConfig.data.labels && pieChartConfig.data.labels.length > 0}
+                <Button 
+                    click={() => setPieView('huf')}
+                    variant={currentPieChartView === 'huf' ? 'primary' : 'secondary'}
+                    size="small"
+                >HUF</Button>
+                <Button 
+                    click={() => setPieView('eur')}
+                    variant={currentPieChartView === 'eur' ? 'primary' : 'secondary'}
+                    size="small"
+                >EUR</Button>
+                <Button 
+                    click={() => setPieView('all')}
+                    variant={currentPieChartView === 'all' ? 'primary' : 'secondary'}
+                    size="small"
+                    disabled={!exchangeRate?.rate} title={!exchangeRate?.rate ? 'Árfolyamadat szükséges' : ''}
+                >Összes</Button>
+            {/if}
         </div>
-    </ChartWidget>
 
-     <ChartWidget
-        class_="widget-daily-chart"
-        title={barChartTitle}
-        chartConfig={barChartConfig}
-        fallbackMessage="Nincs napi bevétel/kiadás adat."
-    >
-        <div slot="controls" class="chart-options">
-            <Button size="small" variant="secondary" active={currentBarChartView === 'huf'} onClick={() => currentBarChartView = 'huf'}>HUF</Button>
-            <Button size="small" variant="secondary" active={currentBarChartView === 'eur'} onClick={() => currentBarChartView = 'eur'}>EUR</Button>
+        {#if pieChartConfig && pieChartConfig.data.labels && pieChartConfig.data.labels.length > 0}
+            <Chart chartConfig={pieChartConfig} fallbackMessage="Nincs megjeleníthető költési adat ebben a hónapban." />
+        {:else if !error}
+            <p class="placeholder">Nincs megjeleníthető költési adat ebben a hónapban.</p>
+        {/if}
+    </Card>
+
+     <Card extraClass="widget-bar-chart" title={barChartTitle}>
+        <div slot="controls" class="chart-toggle">
+            {#if barChartConfig && barChartConfig.data.labels && barChartConfig.data.labels.length > 0}
+                 <Button 
+                    click={() => setBarView('huf')}
+                    variant={currentBarChartView === 'huf' ? 'primary' : 'secondary'}
+                    size="small"
+                >HUF</Button>
+                <Button 
+                    click={() => setBarView('eur')}
+                    variant={currentBarChartView === 'eur' ? 'primary' : 'secondary'}
+                    size="small"
+                >EUR</Button>
+                <Button 
+                    click={() => setBarView('all')}
+                    variant={currentBarChartView === 'all' ? 'primary' : 'secondary'}
+                    size="small"
+                    disabled={!exchangeRate?.rate} title={!exchangeRate?.rate ? 'Árfolyamadat szükséges' : ''}
+                >Összes</Button>
+            {/if}
         </div>
-    </ChartWidget>
 
+        {#if barChartConfig && barChartConfig.data.labels && barChartConfig.data.labels.length > 0}
+            <Chart chartConfig={barChartConfig} fallbackMessage="Nincs megjeleníthető napi bevétel/kiadás adat ebben a hónapban." />
+        {:else if !error}
+            <p class="placeholder">Nincs megjeleníthető napi bevétel/kiadás adat ebben a hónapban.</p>
+        {/if}
+    </Card>
 
-   
-    <Card title="Legutóbbi Tranzakciók" class_="widget-transactions">
+    <Card title="Legutóbbi Tranzakciók" extraClass="widget-transactions">
         {#if data.recentTransactions && data.recentTransactions.length > 0}
             <ul class="transaction-list">
                 {#each data.recentTransactions as transaction (transaction.id)}
@@ -379,13 +442,7 @@
 
 
     
-    .chart-options {
-        display: flex;
-        justify-content: flex-end; 
-        gap: 0.5rem;
-        margin-top: 0.5rem; 
-        padding: 0.5rem 0;
-    }
+  
 
     .transaction-list {
         list-style: none;
@@ -506,6 +563,12 @@
         border: none;
         border-top: 1px solid var(--color-border);
         margin: 0.6rem 0;
+    }
+
+    
+    .chart-toggle {
+        display: flex;
+        gap: var(--spacing-2);
     }
 
 </style>

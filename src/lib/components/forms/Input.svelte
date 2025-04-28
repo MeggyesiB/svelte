@@ -7,9 +7,9 @@
     export let placeholder: string | undefined = undefined;
     export let value: string | number | null | undefined = undefined;
     export let required: boolean = false;
-    export let step: string | undefined = (type === 'number' ? 'any' : undefined); // Number step
-    export let min: string | number | undefined = undefined; // Number/Date min
-    export let max: string | number | undefined = undefined; // Number/Date max
+    export let step: string | undefined = (type === 'number' ? 'any' : undefined); 
+    export let min: string | number | undefined = undefined; 
+    export let max: string | number | undefined = undefined; 
     export let error: string | undefined = undefined; 
     export let labelHidden: boolean = false; 
 
@@ -97,5 +97,6 @@
 	}
 	input[type=number] {
 		-moz-appearance: textfield; /* Firefox */
+		appearance: textfield; /* Standard property */
 	}
 </style> 

@@ -65,7 +65,7 @@ export function getTransactionCountForCategory(categoryId: number): number {
 
 export function getSpendingByCategoryForMonth(month: string): SpendingByCategory[] {
     try {
-        const { startDate, endDate } = getMonthBoundaries(month); // Use shared helper
+        const { startDate, endDate } = getMonthBoundaries(month); 
         console.log(`[categories.service] Calculating spending by category for ${month} (${startDate} - ${endDate})`);
 
         const stmt = db.prepare(`
@@ -81,7 +81,7 @@ export function getSpendingByCategoryForMonth(month: string): SpendingByCategory
             ORDER BY category_name ASC 
         `);
 
-        const results = stmt.all(startDate, endDate) as any[]; // Type properly
+        const results = stmt.all(startDate, endDate) as any[]; 
 
         const spending: SpendingByCategory[] = results.map(row => ({
             categoryId: row.category_id,
